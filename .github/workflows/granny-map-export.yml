@@ -1,0 +1,78 @@
+name: Granny Map Export
+
+on:
+  workflow_dispatch:
+
+jobs:
+  export:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exporter branch
+        uses: actions/checkout@v4
+
+      - name: Download Granny decompiled source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 5 \
+            https://github.com/BasHeemskerk/Granny-Decompiled/archive/refs/heads/vita.zip \
+            -o granny-source.zip
+          unzip -q granny-source.zip
+          mv Granny-Decompiled-vita granny-project
+          mkdir -p granny-project/Assets/Editor
+          cp Assets/Editor/GrannyExport.cs granny-project/Assets/Editor/GrannyExport.cs
+
+      - name: Add UnityGLTF legacy exporter
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 --recurse-submodules \
+            https://github.com/hortor-games/Hortor-UnityGLTF.git unitygltf
+          mkdir -p granny-project/Assets/UnityGLTF
+          cp -a unitygltf/UnityGLTF/Assets/UnityGLTF/. granny-project/Assets/UnityGLTF/
+
+      - name: Export with Unity 2018.2.19f1
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          projectPath: granny-project
+          unityVersion: 2018.2.19f1
+          targetPlatform: StandaloneLinux64
+          buildMethod: GrannyExport.ExportScene
+          customParameters: -batchmode -nographics -quit
+
+      - name: Collect GLB
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test -s granny-project/Export/granny_map.glb
+          mkdir -p godot-map
+          cp granny-project/Export/granny_map.glb godot-map/granny_map.glb
+          cat > godot-map/project.godot <<'EOF'
+          ; Minimal Godot project for the exported Granny map.
+          ; Open this folder in Godot 4 and the GLB will import as a scene.
+          config_version=5
+          [application]
+          config/name="Granny Map"
+          [rendering]
+          renderer/rendering_method="gl_compatibility"
+          renderer/rendering_method.mobile="gl_compatibility"
+          EOF
+          cat > godot-map/README.md <<'EOF'
+          # Granny map
+
+          `granny_map.glb` is a self-contained glTF 2.0 binary containing the exported scene and embedded textures where UnityGLTF can export them.
+
+          Godot 4 recommends glTF 2.0/GLB for 3D scene interchange. Open the folder as a Godot project and double-click the GLB to edit it as an imported scene, or instantiate it from another scene.
+          EOF
+
+      - name: Upload GLB and Godot project
+        uses: actions/upload-artifact@v4
+        with:
+          name: granny-map-godot
+          path: godot-map/
+          if-no-files-found: error
