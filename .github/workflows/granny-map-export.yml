@@ -1,0 +1,76 @@
+name: Granny Forsaken -> textured GLB
+
+on:
+  workflow_dispatch:
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Check input
+        run: |
+          test -f granny-forsaken-v1.2.7-no-effects.zip || {
+            echo 'Missing granny-forsaken-v1.2.7-no-effects.zip in the repository root.'
+            exit 1
+          }
+
+      - name: Download AssetRipper 2.0.0
+        run: |
+          curl -L --fail --retry 3 -o /tmp/assetripper.tar.xz \
+            https://github.com/AssetRipper/AssetRipper/releases/download/2.0.0/AssetRipper_linux_x64.tar.xz
+          mkdir -p /tmp/assetripper
+          tar -xJf /tmp/assetripper.tar.xz -C /tmp/assetripper
+          find /tmp/assetripper -maxdepth 2 -type f -printf '%p\n' | head -30
+
+      - name: Extract game
+        run: |
+          mkdir -p input
+          unzip -q granny-forsaken-v1.2.7-no-effects.zip -d input
+          GAME_DIR="$(find input -maxdepth 2 -type f -name 'Granny Forsaken.exe' -printf '%h\n' | head -1)"
+          test -n "$GAME_DIR"
+          echo "GAME_DIR=$GAME_DIR" >> "$GITHUB_ENV"
+          echo "Game directory: $GAME_DIR"
+
+      - name: Export primary content as GLB + textures
+        run: |
+          mkdir -p output
+          RIPPER="$(find /tmp/assetripper -type f -name 'AssetRipper' -perm -111 | head -1)"
+          test -n "$RIPPER"
+          chmod +x "$RIPPER"
+          "$RIPPER" --cli --headless -i "$GAME_DIR" -o output --mode primary --log true || true
+          echo '--- GLB files ---'
+          find output -type f -iname '*.glb' -printf '%s %p\n' | sort -nr | head -100
+          echo '--- texture files ---'
+          find output -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) -printf '%s %p\n' | sort -nr | head -100
+
+      - name: Select map GLB
+        run: |
+          mkdir -p result
+          # Prefer scene/level exports, then fall back to the largest GLB.
+          CANDIDATE="$(find output -type f -iname '*.glb' | grep -Ei '/(scene|level|map)[^/]*\.glb$' | xargs -r ls -S 2>/dev/null | head -1 || true)"
+          if [ -z "$CANDIDATE" ]; then
+            CANDIDATE="$(find output -type f -iname '*.glb' -printf '%s %p\n' | sort -nr | head -1 | cut -d' ' -f2- || true)"
+          fi
+          test -n "$CANDIDATE" || { echo 'No GLB was exported.'; exit 1; }
+          cp "$CANDIDATE" result/granny-forsaken-map.glb
+          printf 'Selected map: %s\n' "$CANDIDATE" | tee result/README.txt
+
+      - name: Upload result
+        uses: actions/upload-artifact@v7
+        with:
+          name: granny-forsaken-v1.2.7-map
+          path: result/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload all extracted models and textures
+        uses: actions/upload-artifact@v7
+        with:
+          name: granny-forsaken-v1.2.7-all-assets
+          path: output/
+          if-no-files-found: warn
+          retention-days: 7
