@@ -1,0 +1,68 @@
+# Temporary verification copy for the current offline bundle run.
+name: Reassemble REA offline bundle
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/rea-reassemble-bundle.yml"
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Successful Build REA offline bundle run ID"
+        required: true
+        default: "39485305024"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  reassemble:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      SOURCE_RUN_ID: ${{ inputs.run_id || '39485305024' }}
+    steps:
+      - name: Download bundle chunks from the successful build
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          pattern: rea-offline-part-*
+          path: downloads
+          merge-multiple: true
+
+      - name: Reassemble and verify the single ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for i in $(seq -w 0 13); do
+            test -s "downloads/rea-offline-linux-x64.part-$i" || {
+              echo "Missing bundle chunk part-$i"; exit 1;
+            }
+          done
+          test -s downloads/SHA256SUMS.txt
+          cat downloads/rea-offline-linux-x64.part-* > dist/rea-offline-linux-x64.zip
+          EXPECTED="$(awk '{print $1}' downloads/SHA256SUMS.txt)"
+          ACTUAL="$(sha256sum dist/rea-offline-linux-x64.zip | awk '{print $1}')"
+          printf 'Expected SHA-256: %s\nActual SHA-256:   %s\n' "$EXPECTED" "$ACTUAL"
+          test "$EXPECTED" = "$ACTUAL" || {
+            echo "Reassembled ZIP checksum mismatch"; exit 1;
+          }
+          cp downloads/SHA256SUMS.txt dist/SHA256SUMS.txt
+          unzip -tq dist/rea-offline-linux-x64.zip >/dev/null
+          echo "Single offline bundle ZIP verified."
+
+      - name: Upload one-piece bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-offline-linux-x64-full
+          path: |
+            dist/rea-offline-linux-x64.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
