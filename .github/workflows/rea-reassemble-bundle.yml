@@ -1,6 +1,10 @@
 name: Reassemble REA offline bundle
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/rea-reassemble-bundle.yml"
   pull_request:
     branches: [main]
     paths:
