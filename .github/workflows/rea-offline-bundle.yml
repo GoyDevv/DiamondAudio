@@ -1,5 +1,5 @@
 name: Build REA offline bundle
-# Temporary PR run lets us retrieve and validate the CI artifact through the connected GitHub service.
+# Temporary artifact retrieval verification PR.
 
 on:
   push:
