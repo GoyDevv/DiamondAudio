@@ -38,7 +38,7 @@ jobs:
           # Keep an actual source checkout alongside the published runnable package.
           git clone --depth 1 https://github.com/morluto/rea.git "$ROOT/source/rea"
           REA_SHA="$(git -C "$ROOT/source/rea" rev-parse HEAD)"
-          REA_VERSION="$(node -p "require('$ROOT/source/rea/package.json').version")"
+          REA_VERSION="$(jq -r '.version' "$ROOT/source/rea/package.json")"
 
           # Bundle an official Node.js runtime so the CLI does not need Node installed globally.
           NODE_VERSION="24.11.1"
@@ -133,17 +133,18 @@ jobs:
           EOF
           chmod +x "$ROOT"/bin/*
 
-          cat > "$ROOT/README-OFFLINE.md" <<EOF
+          cat > "$ROOT/README-OFFLINE.md" <<'EOF'
           # REA offline toolkit (Linux x86-64)
 
-          This folder is a portable Linux x86-64 bundle. Extract it anywhere; no installer is required.
-          It includes the REA source checkout, the published REA CLI/runtime dependencies,
-          Node.js ${NODE_VERSION}, a bundled JDK 21, Ghidra, JADX, and Apktool.
+          Extract this folder anywhere. The bundle includes an REA source checkout, the published
+          REA CLI and runtime dependencies, Node.js 24.11.1, a bundled JDK 21, Ghidra, JADX, and Apktool.
 
           ## Quick start
 
+          Run these commands from the extracted `rea-offline-linux-x64` directory:
+
           ```bash
-          export PATH="$ROOT/bin:$ROOT/runtime/node/bin:$PATH"
+          export PATH="$PWD/bin:$PWD/runtime/node/bin:$PATH"
           ./bin/rea --help
           ./bin/rea doctor --json
           ./bin/jadx --help
@@ -151,32 +152,24 @@ jobs:
           ./bin/ghidra-headless
           ```
 
-          For REA native analysis, use the REA CLI/provider configuration docs included at
-          `source/rea/docs/`; this bundle does not invent provider settings for your agent.
-          Agent registration still requires a compatible local agent to be installed.
-          Once extracted, the bundled tools and dependencies do not require downloads for
-          the bundled workflows. Website inspection, runtime network capture, updates, and
-          model-provider calls inherently need their own network when used.
+          See `source/rea/docs/` for REA provider configuration and analysis guidance. Agent
+          registration still requires a compatible local agent. Once extracted, the included tools
+          and dependencies do not need downloads for supported offline workflows. Website inspection,
+          live network capture, update operations, and model-provider calls inherently need a network.
 
           ## Scope and limits
 
           - Platform: Linux x86-64 only. This is not an Android/Termux or Windows build.
           - Bundled tools: REA, Node.js, JDK, Ghidra, JADX, and Apktool.
           - Commercial tools (IDA Pro, Hopper, JEB) are not included; use valid licenses.
-          - Other optional REA integrations may need additional platform packages or caller-supplied tools.
-          - Only analyze software you own or are authorized to examine.
+          - Some optional REA integrations may require additional platform packages or caller-supplied tools.
+          - Analyze only software you own or are authorized to examine.
 
           ## Provenance
 
-          - REA source commit: ${REA_SHA}
-          - REA package version: ${REA_VERSION}
-          - Node.js: ${NODE_VERSION}
-          - Ghidra release: $(jq -r '.tag_name' "$RUNNER_TEMP/ghidra-release.json")
-          - JADX release: $(jq -r '.tag_name' "$RUNNER_TEMP/jadx-release.json")
-          - Apktool release: $(jq -r '.tag_name' "$RUNNER_TEMP/apktool-release.json")
-
-          The source checkout's main branch can be newer than the npm package.
-          Retain upstream license and notice files distributed with each tool.
+          Exact source commits and tool versions are recorded in `MANIFEST.txt`. The source checkout's
+          main branch may be newer than the published npm package. Retain upstream license and notice
+          files distributed with each tool.
           EOF
 
           # Preserve source and project notices, plus upstream license files shipped in tool archives.
