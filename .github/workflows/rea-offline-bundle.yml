@@ -80,6 +80,13 @@ jobs:
           mkdir -p "$ROOT/tools/jadx"
           unzip -q "$RUNNER_TEMP/jadx.zip" -d "$ROOT/tools/jadx"
 
+          # Bundle REA's required headless JADX MCP bridge, pinned and hash-verified by REA itself.
+          mkdir -p "$ROOT/tools/jadx-headless-mcp"
+          JADX_MCP_JAR="$ROOT/tools/jadx-headless-mcp/jadx-headless-mcp-0.7.1-all.jar"
+          curl -fsSL --retry 3 "https://github.com/1013503897/jadx-headless-mcp/releases/download/v0.7.1/jadx-headless-mcp-0.7.1-all.jar" -o "$JADX_MCP_JAR"
+          echo "6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573ff75  $JADX_MCP_JAR" | sha256sum -c -
+          curl -fsSL --retry 3 "https://raw.githubusercontent.com/1013503897/jadx-headless-mcp/5844800a486d2248fa949b74c9896285f5b54de2/LICENSE" -o "$ROOT/licenses/JADX-HEADLESS-MCP-APACHE-2.0.txt"
+
           # Bundle Apktool, preserving its license when published at the upstream path.
           curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/iBotPeaches/Apktool/releases/latest -o "$RUNNER_TEMP/apktool-release.json"
@@ -97,6 +104,7 @@ jobs:
           export PATH="$ROOT/runtime/node/bin:$ROOT/tools/jadx/bin:$ROOT/tools/ghidra:$ROOT/tools/ghidra/support:$PATH"
           export JAVA_HOME="$ROOT/runtime/jdk"
           export GHIDRA_INSTALL_DIR="${GHIDRA_INSTALL_DIR:-$ROOT/tools/ghidra}"
+          export REA_JADX_MCP_JAR="${REA_JADX_MCP_JAR:-$ROOT/tools/jadx-headless-mcp/jadx-headless-mcp-0.7.1-all.jar}"
           exec "$ROOT/runtime/node/bin/node" "$ROOT/app/node_modules/rea-agents/scripts/rea.mjs" "$@"
           EOF
 
@@ -163,7 +171,7 @@ jobs:
           ## Scope and limits
 
           - Platform: Linux x86-64 only. This is not an Android/Termux or Windows build.
-          - Bundled tools: REA, Node.js, JDK, Ghidra, JADX, and Apktool.
+          - Bundled tools: REA, Node.js, JDK, Ghidra, JADX, JADX headless MCP bridge, and Apktool.
           - Commercial tools (IDA Pro, Hopper, JEB) are not included; use valid licenses.
           - Some optional REA integrations may require additional platform packages or caller-supplied tools.
           - Analyze only software you own or are authorized to examine.
@@ -185,6 +193,7 @@ jobs:
             echo "Node.js: $NODE_VERSION"
             echo "Ghidra release: $(jq -r '.tag_name' "$RUNNER_TEMP/ghidra-release.json")"
             echo "JADX release: $(jq -r '.tag_name' "$RUNNER_TEMP/jadx-release.json")"
+            echo "JADX headless MCP: 0.7.1 (SHA-256 verified)"
             echo "Apktool release: $(jq -r '.tag_name' "$RUNNER_TEMP/apktool-release.json")"
             echo "Target: Linux x86-64"
           } > "$ROOT/MANIFEST.txt"
@@ -195,6 +204,9 @@ jobs:
           "$ROOT/bin/apktool" --version
           "$ROOT/runtime/jdk/bin/java" -version
           "$ROOT/tools/ghidra/support/analyzeHeadless" -h > "$RUNNER_TEMP/ghidra-help.txt" 2>&1 || true
+          "$ROOT/bin/rea" doctor --json > "$RUNNER_TEMP/rea-doctor.json" || true
+          jq -e '.providerInspections[] | select(.id == "ghidra") | .available == true' "$RUNNER_TEMP/rea-doctor.json" >/dev/null
+          jq -e '.providerInspections[] | select(.id == "jadx") | .available == true' "$RUNNER_TEMP/rea-doctor.json" >/dev/null
 
           # Avoid packaging transient caches from the online build.
           rm -rf "$ROOT/app/.npm" "$ROOT/app/node_modules/.cache"
