@@ -95,8 +95,9 @@ jobs:
           #!/usr/bin/env bash
           set -e
           ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-          export PATH="$ROOT/runtime/node/bin:$ROOT/tools/jadx/bin:$ROOT/tools/ghidra/support:$PATH"
+          export PATH="$ROOT/runtime/node/bin:$ROOT/tools/jadx/bin:$ROOT/tools/ghidra:$ROOT/tools/ghidra/support:$PATH"
           export JAVA_HOME="$ROOT/runtime/jdk"
+          export GHIDRA_INSTALL_DIR="${GHIDRA_INSTALL_DIR:-$ROOT/tools/ghidra}"
           exec "$ROOT/runtime/node/bin/node" "$ROOT/app/node_modules/rea-agents/scripts/rea.mjs" "$@"
           EOF
 
