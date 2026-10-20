@@ -15,10 +15,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: rea-offline-bundle
-  cancel-in-progress: true
-
 jobs:
   build-linux-x64:
     name: Linux x86-64 offline kit
