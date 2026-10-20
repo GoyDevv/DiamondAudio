@@ -216,6 +216,11 @@ jobs:
           echo "Bundle size: $(du -h "$GITHUB_WORKSPACE/dist/rea-offline-linux-x64.zip" | cut -f1)"
           # GitHub connector downloads have a 512 MiB per-artifact limit; upload independent chunks.
           split -b 80M -d -a 2 "$GITHUB_WORKSPACE/dist/rea-offline-linux-x64.zip" "$GITHUB_WORKSPACE/dist/rea-offline-linux-x64.part-"
+          PART_COUNT="$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -type f -name 'rea-offline-linux-x64.part-*' | wc -l)"
+          test "$PART_COUNT" -eq 14 || { echo "Expected 14 bundle chunks, found $PART_COUNT"; exit 1; }
+          ZIP_SHA="$(awk '{print $1}' "$GITHUB_WORKSPACE/dist/SHA256SUMS.txt")"
+          PARTS_SHA="$(cat "$GITHUB_WORKSPACE"/dist/rea-offline-linux-x64.part-* | sha256sum | awk '{print $1}')"
+          test "$ZIP_SHA" = "$PARTS_SHA" || { echo "Split chunks do not reconstruct the original ZIP"; exit 1; }
           ls -lh "$GITHUB_WORKSPACE"/dist/rea-offline-linux-x64.part-*
 
       - name: Upload bundle part 00
@@ -330,8 +335,17 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rea-offline-part-12
+          path: dist/rea-offline-linux-x64.part-12
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload bundle part 13
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-offline-part-13
           path: |
-            dist/rea-offline-linux-x64.part-12
+            dist/rea-offline-linux-x64.part-13
             dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 7
