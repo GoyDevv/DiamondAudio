@@ -201,13 +201,34 @@ jobs:
           (cd "$RUNNER_TEMP" && zip -q -r -1 "$GITHUB_WORKSPACE/dist/rea-offline-linux-x64.zip" "rea-offline-linux-x64")
           sha256sum "$GITHUB_WORKSPACE/dist/rea-offline-linux-x64.zip" > "$GITHUB_WORKSPACE/dist/SHA256SUMS.txt"
           echo "Bundle size: $(du -h "$GITHUB_WORKSPACE/dist/rea-offline-linux-x64.zip" | cut -f1)"
+          # GitHub connector downloads have a 512 MiB per-artifact limit; upload independent chunks.
+          split -b 450M -d -a 2 "$GITHUB_WORKSPACE/dist/rea-offline-linux-x64.zip" "$GITHUB_WORKSPACE/dist/rea-offline-linux-x64.part-"
+          ls -lh "$GITHUB_WORKSPACE"/dist/rea-offline-linux-x64.part-*
 
-      - name: Upload offline bundle
+      - name: Upload bundle part 00
         uses: actions/upload-artifact@v4
         with:
-          name: rea-offline-linux-x64
+          name: rea-offline-part-00
+          path: dist/rea-offline-linux-x64.part-00
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload bundle part 01
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-offline-part-01
+          path: dist/rea-offline-linux-x64.part-01
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload bundle part 02
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-offline-part-02
           path: |
-            dist/rea-offline-linux-x64.zip
+            dist/rea-offline-linux-x64.part-02
             dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 7
