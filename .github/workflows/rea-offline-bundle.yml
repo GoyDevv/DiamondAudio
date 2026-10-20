@@ -1,0 +1,219 @@
+name: Build REA offline bundle
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/rea-offline-bundle.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rea-offline-bundle
+  cancel-in-progress: true
+
+jobs:
+  build-linux-x64:
+    name: Linux x86-64 offline kit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout bundle recipe
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build offline package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/rea-offline-linux-x64"
+          mkdir -p "$ROOT"/{app,bin,docs,licenses,runtime,source,tools}
+          echo "Building REA Linux x86-64 offline bundle"
+
+          # Keep an actual source checkout alongside the published runnable package.
+          git clone --depth 1 https://github.com/morluto/rea.git "$ROOT/source/rea"
+          REA_SHA="$(git -C "$ROOT/source/rea" rev-parse HEAD)"
+          REA_VERSION="$(node -p "require('$ROOT/source/rea/package.json').version")"
+
+          # Bundle an official Node.js runtime so the CLI does not need Node installed globally.
+          NODE_VERSION="24.11.1"
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" -o "$RUNNER_TEMP/node-shasums.txt"
+          curl -fsSL --retry 3 "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" -o "$RUNNER_TEMP/node.tar.xz"
+          (cd "$RUNNER_TEMP" && grep " node-v${NODE_VERSION}-linux-x64.tar.xz$" node-shasums.txt | sha256sum -c -)
+          mkdir -p "$ROOT/runtime/node"
+          tar -xJf "$RUNNER_TEMP/node.tar.xz" --strip-components=1 -C "$ROOT/runtime/node"
+          export PATH="$ROOT/runtime/node/bin:$PATH"
+
+          # Install REA's published runtime dependencies during the online build.
+          npm install --prefix "$ROOT/app" --omit=dev --no-audit --no-fund "rea-agents@${REA_VERSION}"
+
+          # Bundle a JDK for Ghidra and JADX.
+          curl -fsSL --retry 3 "https://api.adoptium.net/v3/binary/latest/21/ga/linux/x64/jdk/hotspot/normal/eclipse" -o "$RUNNER_TEMP/jdk.tar.gz"
+          mkdir -p "$ROOT/runtime/jdk"
+          tar -xzf "$RUNNER_TEMP/jdk.tar.gz" --strip-components=1 -C "$ROOT/runtime/jdk"
+
+          # Fetch the latest official Ghidra release asset and verify that the expected asset exists.
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest -o "$RUNNER_TEMP/ghidra-release.json"
+          GHIDRA_URL="$(jq -r '[.assets[] | select(.name | test("^ghidra_.*_PUBLIC_.*\\.zip$"))][0].browser_download_url // empty' "$RUNNER_TEMP/ghidra-release.json")"
+          test -n "$GHIDRA_URL" || { echo "Could not find the official Ghidra ZIP asset"; exit 1; }
+          curl -fsSL --retry 3 "$GHIDRA_URL" -o "$RUNNER_TEMP/ghidra.zip"
+          mkdir -p "$RUNNER_TEMP/ghidra-extracted"
+          unzip -q "$RUNNER_TEMP/ghidra.zip" -d "$RUNNER_TEMP/ghidra-extracted"
+          GHIDRA_DIR="$(find "$RUNNER_TEMP/ghidra-extracted" -mindepth 1 -maxdepth 1 -type d -name 'ghidra_*' -print -quit)"
+          test -n "$GHIDRA_DIR" || { echo "Ghidra archive had an unexpected layout"; exit 1; }
+          mv "$GHIDRA_DIR" "$ROOT/tools/ghidra"
+
+          # Bundle JADX for Android APK/DEX analysis.
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/skylot/jadx/releases/latest -o "$RUNNER_TEMP/jadx-release.json"
+          JADX_URL="$(jq -r '[.assets[] | select(.name | test("^jadx-[0-9][0-9A-Za-z.-]*\\.zip$"))][0].browser_download_url // empty' "$RUNNER_TEMP/jadx-release.json")"
+          test -n "$JADX_URL" || { echo "Could not find the official JADX ZIP asset"; exit 1; }
+          curl -fsSL --retry 3 "$JADX_URL" -o "$RUNNER_TEMP/jadx.zip"
+          mkdir -p "$ROOT/tools/jadx"
+          unzip -q "$RUNNER_TEMP/jadx.zip" -d "$ROOT/tools/jadx"
+
+          # Bundle Apktool, preserving its license when published at the upstream path.
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/iBotPeaches/Apktool/releases/latest -o "$RUNNER_TEMP/apktool-release.json"
+          APKTOOL_URL="$(jq -r '[.assets[] | select(.name | test("^apktool_[0-9.]+\\.jar$"))][0].browser_download_url // empty' "$RUNNER_TEMP/apktool-release.json")"
+          test -n "$APKTOOL_URL" || { echo "Could not find the official Apktool JAR asset"; exit 1; }
+          mkdir -p "$ROOT/tools/apktool"
+          curl -fsSL --retry 3 "$APKTOOL_URL" -o "$ROOT/tools/apktool/apktool.jar"
+          curl -fsSL --retry 3 https://raw.githubusercontent.com/iBotPeaches/Apktool/master/LICENSE.md -o "$ROOT/licenses/APKTOOL-LICENSE.md"
+
+          # Small launchers keep all paths relative, so the extracted folder can be moved.
+          cat > "$ROOT/bin/rea" <<'EOF'
+          #!/usr/bin/env bash
+          set -e
+          ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+          export PATH="$ROOT/runtime/node/bin:$ROOT/tools/jadx/bin:$ROOT/tools/ghidra/support:$PATH"
+          export JAVA_HOME="$ROOT/runtime/jdk"
+          exec "$ROOT/runtime/node/bin/node" "$ROOT/app/node_modules/rea-agents/scripts/rea.mjs" "$@"
+          EOF
+
+          cat > "$ROOT/bin/ghidra-headless" <<'EOF'
+          #!/usr/bin/env bash
+          set -e
+          ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+          export JAVA_HOME="$ROOT/runtime/jdk"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          exec "$ROOT/tools/ghidra/support/analyzeHeadless" "$@"
+          EOF
+
+          cat > "$ROOT/bin/ghidra-gui" <<'EOF'
+          #!/usr/bin/env bash
+          set -e
+          ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+          export JAVA_HOME="$ROOT/runtime/jdk"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          exec "$ROOT/tools/ghidra/ghidraRun" "$@"
+          EOF
+
+          cat > "$ROOT/bin/jadx" <<'EOF'
+          #!/usr/bin/env bash
+          set -e
+          ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+          export JAVA_HOME="$ROOT/runtime/jdk"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          exec "$ROOT/tools/jadx/bin/jadx" "$@"
+          EOF
+
+          cat > "$ROOT/bin/apktool" <<'EOF'
+          #!/usr/bin/env bash
+          set -e
+          ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+          export JAVA_HOME="$ROOT/runtime/jdk"
+          exec "$JAVA_HOME/bin/java" -jar "$ROOT/tools/apktool/apktool.jar" "$@"
+          EOF
+          chmod +x "$ROOT"/bin/*
+
+          cat > "$ROOT/README-OFFLINE.md" <<EOF
+          # REA offline toolkit (Linux x86-64)
+
+          This folder is a portable Linux x86-64 bundle. Extract it anywhere; no installer is required.
+          It includes the REA source checkout, the published REA CLI/runtime dependencies,
+          Node.js ${NODE_VERSION}, a bundled JDK 21, Ghidra, JADX, and Apktool.
+
+          ## Quick start
+
+          ```bash
+          export PATH="$ROOT/bin:$ROOT/runtime/node/bin:$PATH"
+          ./bin/rea --help
+          ./bin/rea doctor --json
+          ./bin/jadx --help
+          ./bin/apktool --help
+          ./bin/ghidra-headless
+          ```
+
+          For REA native analysis, use the REA CLI/provider configuration docs included at
+          `source/rea/docs/`; this bundle does not invent provider settings for your agent.
+          Agent registration still requires a compatible local agent to be installed.
+          Once extracted, the bundled tools and dependencies do not require downloads for
+          the bundled workflows. Website inspection, runtime network capture, updates, and
+          model-provider calls inherently need their own network when used.
+
+          ## Scope and limits
+
+          - Platform: Linux x86-64 only. This is not an Android/Termux or Windows build.
+          - Bundled tools: REA, Node.js, JDK, Ghidra, JADX, and Apktool.
+          - Commercial tools (IDA Pro, Hopper, JEB) are not included; use valid licenses.
+          - Other optional REA integrations may need additional platform packages or caller-supplied tools.
+          - Only analyze software you own or are authorized to examine.
+
+          ## Provenance
+
+          - REA source commit: ${REA_SHA}
+          - REA package version: ${REA_VERSION}
+          - Node.js: ${NODE_VERSION}
+          - Ghidra release: $(jq -r '.tag_name' "$RUNNER_TEMP/ghidra-release.json")
+          - JADX release: $(jq -r '.tag_name' "$RUNNER_TEMP/jadx-release.json")
+          - Apktool release: $(jq -r '.tag_name' "$RUNNER_TEMP/apktool-release.json")
+
+          The source checkout's main branch can be newer than the npm package.
+          Retain upstream license and notice files distributed with each tool.
+          EOF
+
+          # Preserve source and project notices, plus upstream license files shipped in tool archives.
+          cp "$ROOT/source/rea/LICENSE" "$ROOT/licenses/REA-MIT-LICENSE"
+          cp "$ROOT/source/rea/THIRD_PARTY_NOTICES.md" "$ROOT/licenses/REA-THIRD-PARTY-NOTICES.md"
+          cp "$ROOT/source/rea/DISCLAIMER.md" "$ROOT/licenses/REA-DISCLAIMER.md"
+          {
+            echo "REA source commit: $REA_SHA"
+            echo "REA package version: $REA_VERSION"
+            echo "Node.js: $NODE_VERSION"
+            echo "Ghidra release: $(jq -r '.tag_name' "$RUNNER_TEMP/ghidra-release.json")"
+            echo "JADX release: $(jq -r '.tag_name' "$RUNNER_TEMP/jadx-release.json")"
+            echo "Apktool release: $(jq -r '.tag_name' "$RUNNER_TEMP/apktool-release.json")"
+            echo "Target: Linux x86-64"
+          } > "$ROOT/MANIFEST.txt"
+
+          # Smoke tests run offline against the assembled paths.
+          "$ROOT/bin/rea" --help > "$RUNNER_TEMP/rea-help.txt"
+          "$ROOT/bin/jadx" --version
+          "$ROOT/bin/apktool" --version
+          "$ROOT/runtime/jdk/bin/java" -version
+          "$ROOT/tools/ghidra/support/analyzeHeadless" -h > "$RUNNER_TEMP/ghidra-help.txt" 2>&1 || true
+
+          # Avoid packaging transient caches from the online build.
+          rm -rf "$ROOT/app/.npm" "$ROOT/app/node_modules/.cache"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          (cd "$RUNNER_TEMP" && zip -q -r -1 "$GITHUB_WORKSPACE/dist/rea-offline-linux-x64.zip" "rea-offline-linux-x64")
+          sha256sum "$GITHUB_WORKSPACE/dist/rea-offline-linux-x64.zip" > "$GITHUB_WORKSPACE/dist/SHA256SUMS.txt"
+          echo "Bundle size: $(du -h "$GITHUB_WORKSPACE/dist/rea-offline-linux-x64.zip" | cut -f1)"
+
+      - name: Upload offline bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-offline-linux-x64
+          path: |
+            dist/rea-offline-linux-x64.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
