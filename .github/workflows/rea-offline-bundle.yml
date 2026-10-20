@@ -203,7 +203,7 @@ jobs:
           sha256sum "$GITHUB_WORKSPACE/dist/rea-offline-linux-x64.zip" > "$GITHUB_WORKSPACE/dist/SHA256SUMS.txt"
           echo "Bundle size: $(du -h "$GITHUB_WORKSPACE/dist/rea-offline-linux-x64.zip" | cut -f1)"
           # GitHub connector downloads have a 512 MiB per-artifact limit; upload independent chunks.
-          split -b 450M -d -a 2 "$GITHUB_WORKSPACE/dist/rea-offline-linux-x64.zip" "$GITHUB_WORKSPACE/dist/rea-offline-linux-x64.part-"
+          split -b 80M -d -a 2 "$GITHUB_WORKSPACE/dist/rea-offline-linux-x64.zip" "$GITHUB_WORKSPACE/dist/rea-offline-linux-x64.part-"
           ls -lh "$GITHUB_WORKSPACE"/dist/rea-offline-linux-x64.part-*
 
       - name: Upload bundle part 00
@@ -228,8 +228,98 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rea-offline-part-02
+          path: dist/rea-offline-linux-x64.part-02
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload bundle part 03
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-offline-part-03
+          path: dist/rea-offline-linux-x64.part-03
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload bundle part 04
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-offline-part-04
+          path: dist/rea-offline-linux-x64.part-04
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload bundle part 05
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-offline-part-05
+          path: dist/rea-offline-linux-x64.part-05
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload bundle part 06
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-offline-part-06
+          path: dist/rea-offline-linux-x64.part-06
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload bundle part 07
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-offline-part-07
+          path: dist/rea-offline-linux-x64.part-07
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload bundle part 08
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-offline-part-08
+          path: dist/rea-offline-linux-x64.part-08
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload bundle part 09
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-offline-part-09
+          path: dist/rea-offline-linux-x64.part-09
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload bundle part 10
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-offline-part-10
+          path: dist/rea-offline-linux-x64.part-10
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload bundle part 11
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-offline-part-11
+          path: dist/rea-offline-linux-x64.part-11
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload bundle part 12
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-offline-part-12
           path: |
-            dist/rea-offline-linux-x64.part-02
+            dist/rea-offline-linux-x64.part-12
             dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 7
